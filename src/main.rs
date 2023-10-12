@@ -1,5 +1,6 @@
 use std::io::prelude::*;
 use std::net::TcpStream;
+use std::time::Duration;
 use std::{str, usize};
 
 const BUFF_SIZE: usize = 8 * 8;
@@ -54,6 +55,8 @@ impl RequestHeader {
 fn read_response(mut stream: &TcpStream) -> std::io::Result<Vec<u8>> {
     let mut response = vec![];
 
+    // this could also be possible using stream.read_to_end, but i choose to construct the buffer by my
+    // myself, learning the hard way sometimes gives you more knowledge.
     loop {
         let mut buffer = [0; BUFF_SIZE];
         let len = match stream.read(&mut buffer) {
@@ -65,12 +68,12 @@ fn read_response(mut stream: &TcpStream) -> std::io::Result<Vec<u8>> {
         if len.is_none() {
             break;
         }
+
         if len.unwrap() < BUFF_SIZE {
             response.write_all(&buffer[..len.unwrap()])?;
-            break;
+        } else {
+            response.write_all(&buffer[..BUFF_SIZE])?;
         }
-
-        response.write_all(&buffer[..BUFF_SIZE])?;
     }
 
     Ok(response)
@@ -81,16 +84,23 @@ fn main() -> std::io::Result<()> {
     let port = 80;
     let mut stream = TcpStream::connect((host, port))?;
 
-    let mut header = RequestHeader::new(HTTPMethod::HEAD, "/", HttpVersion::HTTP11);
+    let mut header = RequestHeader::new(HTTPMethod::GET, "/", HttpVersion::HTTP11);
 
     header.add("Host", host);
     header.add("Connection", "Close");
 
+    stream.set_read_timeout(Some(Duration::from_secs(60)))?;
+    stream.set_write_timeout(Some(Duration::from_secs(60)))?;
+
     stream.write_all(header.parse_as_str().as_bytes())?;
+    stream.flush()?;
 
     let response = read_response(&stream)?;
+    let response_str = String::from_utf8(response).unwrap();
 
-    dbg!(String::from_utf8(response).unwrap());
+    let parsed_response = response_str.split("\n").collect::<Vec<&str>>();
+
+    dbg!(parsed_response);
 
     Ok(())
 }
