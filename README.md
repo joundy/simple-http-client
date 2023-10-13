@@ -4,22 +4,25 @@ This project is not intended for use in a production environment; it is a fun pr
 
 example output:
 ```
-[src/main.rs:103] parsed_response = [
+[src/main.rs:120] parsed_response = [
     "HTTP/1.1 200 OK\r",
     "Accept-Ranges: bytes\r",
-    "Age: 582387\r",
+    "Age: 228325\r",
     "Cache-Control: max-age=604800\r",
     "Content-Type: text/html; charset=UTF-8\r",
-    "Date: Thu, 12 Oct 2023 18:54:41 GMT\r",
+    "Date: Fri, 13 Oct 2023 16:56:44 GMT\r",
     "Etag: \"3147526947\"\r",
-    "Expires: Thu, 19 Oct 2023 18:54:41 GMT\r",
+    "Expires: Fri, 20 Oct 2023 16:56:44 GMT\r",
     "Last-Modified: Thu, 17 Oct 2019 07:18:26 GMT\r",
-    "Server: ECS (laa/7BD6)\r",
+    "Server: ECS (laa/7B8E)\r",
     "Vary: Accept-Encoding\r",
     "X-Cache: HIT\r",
     "Content-Length: 1256\r",
     "Connection: close\r",
     "\r",
+    "",
+]
+[src/main.rs:120] parsed_response = [
     "<!doctype html>",
     "<html>",
     "<head>",

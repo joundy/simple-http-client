@@ -10,6 +10,10 @@ use webpki_roots;
 
 const BUFF_SIZE: usize = 64;
 
+// buffer version of "\r\n\r\n"
+// used to split http response
+const HTTP_SPLIT_BUFFER: [u8; 4] = [13, 10, 13, 10]; 
+
 pub enum HttpVersion {
     HTTP10,
     HTTP11,
@@ -57,7 +61,22 @@ impl RequestHeader {
     }
 }
 
-fn read_response<T>(mut reader: T) -> std::io::Result<Vec<u8>>
+// find the last idx buffer the match other buffer
+fn find_buffer_match_idx<T: PartialEq>(buffer_match: &[T], buffer: &[T]) -> Option<usize> {
+    if buffer.len() < buffer_match.len(){
+        return None;
+    }
+
+    for i in 0..=buffer.len() - buffer_match.len(){
+        if buffer[i..(i + buffer_match.len())] == *buffer_match{
+            return Some(i + buffer_match.len());
+        }
+    };
+
+    return None
+}
+
+fn read_response<T>(mut reader: T) -> std::io::Result<(Vec<u8>, Vec<u8>)>
 where
     T: Read,
 {
@@ -83,7 +102,15 @@ where
         }
     }
 
-    Ok(response)
+    let match_idx = find_buffer_match_idx(&HTTP_SPLIT_BUFFER, &response);
+
+    let mut header = vec![];
+    let mut body = vec![];
+
+    header.write_all(&response[0..match_idx.unwrap()])?;
+    body.write_all(&response[match_idx.unwrap()..])?;
+
+    Ok((header, body))
 }
 
 fn parse_response(response: Vec<u8>) {
@@ -96,7 +123,7 @@ fn parse_response(response: Vec<u8>) {
 fn main() -> std::io::Result<()> {
     let host = "example.com";
     // let port = 80; // http
-    let port = 443; // https 
+    let port = 443; // https
     let mut stream = TcpStream::connect((host, port))?;
     stream.set_read_timeout(Some(Duration::from_secs(60)))?;
     stream.set_write_timeout(Some(Duration::from_secs(60)))?;
@@ -121,13 +148,15 @@ fn main() -> std::io::Result<()> {
         stream.flush()?;
 
         let response = read_response(stream)?;
-        parse_response(response);
+        parse_response(response.0);
+        parse_response(response.1);
     } else {
         stream.write_all(header.parse_as_str().as_bytes())?;
         stream.flush()?;
 
         let response = read_response(stream)?;
-        parse_response(response);
+        parse_response(response.0);
+        parse_response(response.1);
     }
 
     Ok(())
