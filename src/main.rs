@@ -1,9 +1,14 @@
 use std::io::prelude::*;
+use std::io::ErrorKind;
 use std::net::TcpStream;
 use std::time::Duration;
 use std::{str, usize};
 
-const BUFF_SIZE: usize = 8 * 8;
+use rustls;
+use webpki;
+use webpki_roots;
+
+const BUFF_SIZE: usize = 64;
 
 pub enum HttpVersion {
     HTTP10,
@@ -52,22 +57,24 @@ impl RequestHeader {
     }
 }
 
-fn read_response(mut stream: &TcpStream) -> std::io::Result<Vec<u8>> {
+fn read_response<T>(mut reader: T) -> std::io::Result<Vec<u8>>
+where
+    T: Read,
+{
     let mut response = vec![];
 
     // this could also be possible using stream.read_to_end, but i choose to construct the buffer by my
     // myself, learning the hard way sometimes gives you more knowledge.
     loop {
         let mut buffer = [0; BUFF_SIZE];
-        let len = match stream.read(&mut buffer) {
-            Ok(0) => None,
+        let len = match reader.read(&mut buffer) {
+            Ok(0) => break,
             Ok(len) => Some(len),
-            Err(_) => panic!("errors.when reading buffer response"),
+            Err(error) => match error.kind() {
+                ErrorKind::ConnectionAborted => break,
+                _ => panic!("errors.when reading buffer: {}", error),
+            },
         };
-
-        if len.is_none() {
-            break;
-        }
 
         if len.unwrap() < BUFF_SIZE {
             response.write_all(&buffer[..len.unwrap()])?;
@@ -79,28 +86,49 @@ fn read_response(mut stream: &TcpStream) -> std::io::Result<Vec<u8>> {
     Ok(response)
 }
 
+fn parse_response(response: Vec<u8>) {
+    let response_str = String::from_utf8(response).unwrap();
+    let parsed_response = response_str.split("\n").collect::<Vec<&str>>();
+
+    dbg!(parsed_response);
+}
+
 fn main() -> std::io::Result<()> {
     let host = "example.com";
-    let port = 80;
+    // let port = 80; // http
+    let port = 443; // https 
     let mut stream = TcpStream::connect((host, port))?;
+    stream.set_read_timeout(Some(Duration::from_secs(60)))?;
+    stream.set_write_timeout(Some(Duration::from_secs(60)))?;
 
     let mut header = RequestHeader::new(HTTPMethod::GET, "/", HttpVersion::HTTP11);
 
     header.add("Host", host);
     header.add("Connection", "Close");
 
-    stream.set_read_timeout(Some(Duration::from_secs(60)))?;
-    stream.set_write_timeout(Some(Duration::from_secs(60)))?;
+    if port == 443 {
+        let mut config_tls = rustls::ClientConfig::new();
+        config_tls
+            .root_store
+            .add_server_trust_anchors(&webpki_roots::TLS_SERVER_ROOTS);
+        let arc = std::sync::Arc::new(config_tls);
 
-    stream.write_all(header.parse_as_str().as_bytes())?;
-    stream.flush()?;
+        let dns_name = webpki::DNSNameRef::try_from_ascii(host.as_bytes()).unwrap();
+        let mut client = rustls::ClientSession::new(&arc, dns_name);
 
-    let response = read_response(&stream)?;
-    let response_str = String::from_utf8(response).unwrap();
+        let mut stream = rustls::Stream::new(&mut client, &mut stream);
+        stream.write_all(header.parse_as_str().as_bytes())?;
+        stream.flush()?;
 
-    let parsed_response = response_str.split("\n").collect::<Vec<&str>>();
+        let response = read_response(stream)?;
+        parse_response(response);
+    } else {
+        stream.write_all(header.parse_as_str().as_bytes())?;
+        stream.flush()?;
 
-    dbg!(parsed_response);
+        let response = read_response(stream)?;
+        parse_response(response);
+    }
 
     Ok(())
 }
