@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::io::prelude::*;
 use std::io::ErrorKind;
 use std::net::TcpStream;
@@ -11,8 +12,13 @@ use webpki_roots;
 const BUFF_SIZE: usize = 64;
 
 // buffer version of "\r\n\r\n"
-// used to split http response
-const HTTP_SPLIT_BUFFER: [u8; 4] = [13, 10, 13, 10]; 
+const HTTP_SPLIT_BUFFER: [u8; 4] = [13, 10, 13, 10];
+
+// buffer version of "\r\n"
+const HEADER_SPLIT_LINE_BUFFER: [u8; 2] = [13, 10];
+
+// buffer version of ": "
+const HEADER_SPLIT_VALUE_BUFFER: [u8; 2] = [58, 32];
 
 pub enum HttpVersion {
     HTTP10,
@@ -63,17 +69,17 @@ impl RequestHeader {
 
 // find the last idx buffer the match other buffer
 fn find_buffer_match_idx<T: PartialEq>(buffer_match: &[T], buffer: &[T]) -> Option<usize> {
-    if buffer.len() < buffer_match.len(){
+    if buffer.len() < buffer_match.len() {
         return None;
     }
 
-    for i in 0..=buffer.len() - buffer_match.len(){
-        if buffer[i..(i + buffer_match.len())] == *buffer_match{
+    for i in 0..=buffer.len() - buffer_match.len() {
+        if buffer[i..(i + buffer_match.len())] == *buffer_match {
             return Some(i + buffer_match.len());
         }
-    };
+    }
 
-    return None
+    return None;
 }
 
 fn read_response<T>(mut reader: T) -> std::io::Result<(Vec<u8>, Vec<u8>)>
@@ -113,11 +119,36 @@ where
     Ok((header, body))
 }
 
-fn parse_response(response: Vec<u8>) {
-    let response_str = String::from_utf8(response).unwrap();
-    let parsed_response = response_str.split("\n").collect::<Vec<&str>>();
+fn parse_header_response<'a>(response: &'a Vec<u8>) -> HashMap<&'a str, &'a str> {
+    let mut header_map: HashMap<&str, &str> = HashMap::new();
+    let mut header = &response[..];
 
-    dbg!(parsed_response);
+    // parse header response in hard way mode;
+    loop {
+        match find_buffer_match_idx(&HEADER_SPLIT_LINE_BUFFER, header) {
+            None => break,
+            Some(line_idx) => {
+                let line = &header[..line_idx - HEADER_SPLIT_LINE_BUFFER.len()];
+
+                match find_buffer_match_idx(&HEADER_SPLIT_VALUE_BUFFER, line) {
+                    None => (),
+                    Some(value_idx) => {
+                        let property = &line[..value_idx - HEADER_SPLIT_VALUE_BUFFER.len()];
+                        let value = &line[value_idx..];
+
+                        header_map.insert(
+                            str::from_utf8(property).unwrap(),
+                            str::from_utf8(value).unwrap(),
+                        );
+                    }
+                }
+
+                header = &header[line_idx..];
+            }
+        }
+    };
+
+    return header_map;
 }
 
 fn main() -> std::io::Result<()> {
@@ -133,6 +164,7 @@ fn main() -> std::io::Result<()> {
     header.add("Host", host);
     header.add("Connection", "Close");
 
+    let response: (Vec<u8>, Vec<u8>);
     if port == 443 {
         let mut config_tls = rustls::ClientConfig::new();
         config_tls
@@ -147,17 +179,18 @@ fn main() -> std::io::Result<()> {
         stream.write_all(header.parse_as_str().as_bytes())?;
         stream.flush()?;
 
-        let response = read_response(stream)?;
-        parse_response(response.0);
-        parse_response(response.1);
+        response = read_response(stream)?;
     } else {
         stream.write_all(header.parse_as_str().as_bytes())?;
         stream.flush()?;
-
-        let response = read_response(stream)?;
-        parse_response(response.0);
-        parse_response(response.1);
+        response = read_response(stream)?;
     }
+
+    let header_response = parse_header_response(&response.0);
+    dbg!(header_response);
+
+    let body_response = String::from_utf8(response.1).unwrap();
+    dbg!(body_response);
 
     Ok(())
 }
