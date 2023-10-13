@@ -152,14 +152,14 @@ fn parse_header_response<'a>(response: &'a Vec<u8>) -> HashMap<&'a str, &'a str>
 }
 
 fn main() -> std::io::Result<()> {
-    let host = "example.com";
+    let host = "dummyjson.com";
     // let port = 80; // http
     let port = 443; // https
     let mut stream = TcpStream::connect((host, port))?;
     stream.set_read_timeout(Some(Duration::from_secs(60)))?;
     stream.set_write_timeout(Some(Duration::from_secs(60)))?;
 
-    let mut header = RequestHeader::new(HTTPMethod::GET, "/", HttpVersion::HTTP11);
+    let mut header = RequestHeader::new(HTTPMethod::GET, "/products/1", HttpVersion::HTTP11);
 
     header.add("Host", host);
     header.add("Connection", "Close");
